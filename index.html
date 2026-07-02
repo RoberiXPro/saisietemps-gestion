@@ -3,20 +3,22 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SaisieTemps Gestion V47 Firebase</title>
+<title>SaisieTemps Gestion V49 Firebase</title>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 <div id="login" class="login-screen">
   <div class="login-card">
-    <div class="brand">ST</div><h1>SaisieTemps Gestion</h1>
+    <h1>SaisieTemps Gestion</h1>
     <p>Connecte-toi avec ton email et ton PIN personnel.</p>
+    <div id="rememberedLogin" class="remembered-login hidden"></div>
     <div class="pin-notice"><b>Première connexion :</b> indique ton email, ton nom et crée un PIN personnel de 6 caractères minimum. <br><b>Connexion suivante :</b> ton email + ton PIN suffisent pour retrouver ton espace sur PC et mobile. Ne partage jamais ton PIN.</div>
     <div class="field"><label>Email</label><input id="agentEmail" class="input" placeholder="nom@entreprise.com" type="email" autocomplete="email"></div>
     <div class="field"><label>Nom <span class="muted-inline">(première connexion seulement)</span></label><input id="agentName" class="input" placeholder="Robert" autocomplete="name"></div>
     <div class="field"><label>PIN personnel <span class="muted-inline">(6 caractères minimum)</span></label><input id="agentPin" class="input" placeholder="Votre PIN" type="password" autocomplete="current-password"></div>
     <p id="loginMsg" class="hidden error"></p>
     <button id="loginBtn" class="btn primary full">Se connecter / créer mon espace</button>
+    <button id="forgotPinBtn" class="btn ghost full login-secondary" type="button">PIN oublié ? Recevoir un email</button>
     <p class="copyright">© RoberiX 2026</p>
   </div>
 </div>
