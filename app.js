@@ -1,4 +1,4 @@
-// SaisieTemps Gestion V47 Firebase Ready
+// SaisieTemps Gestion V49 Firebase Ready
 const firebaseConfig = {
   apiKey: "AIzaSyB9r85O9HLeCjjiDbQB75Qw8FZqfPq8bDA",
   authDomain: "saisietemps-gestion.firebaseapp.com",
@@ -9,12 +9,44 @@ const firebaseConfig = {
 };
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
+auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(e => console.warn('Persistence Auth locale non disponible', e));
 const db = firebase.firestore();
 let saveTimer = null;
+let cloudUnsubscribe = null;
+let applyingRemoteState = false;
+let lastLocalWriteAt = 0;
+let loginInProgress = false;
 function currentUserRef(){
   const u = auth.currentUser;
   if(!u) return null;
   return db.collection('saisieTempsUsers').doc(u.uid);
+}
+
+function subscribeCloudState(agent){
+  if (cloudUnsubscribe) { cloudUnsubscribe(); cloudUnsubscribe = null; }
+  const ref = currentUserRef();
+  if (!ref) return;
+  cloudUnsubscribe = ref.onSnapshot((snap) => {
+    if (!snap.exists || !snap.data().state) return;
+    const data = snap.data();
+    const pending = snap.metadata && snap.metadata.hasPendingWrites;
+    if (pending) return;
+    applyingRemoteState = true;
+    try {
+      state = data.state;
+      state.agent = agent || state.agent || { uid: auth.currentUser?.uid, email: auth.currentUser?.email, name: auth.currentUser?.displayName || auth.currentUser?.email };
+      migrateState();
+      rollover();
+      if ($('#login')) $('#login').classList.add('hidden');
+      if ($('#dashboard')) $('#dashboard').classList.remove('hidden');
+      render();
+    } finally {
+      applyingRemoteState = false;
+    }
+  }, (err) => {
+    console.error('Erreur écoute Firebase', err);
+    toast('Synchronisation Firebase interrompue. Vérifie la connexion.', 'warn');
+  });
 }
 function cleanStateForCloud(){
   const data = JSON.parse(JSON.stringify(state || {}));
@@ -132,8 +164,9 @@ function borderedExcelHtml(rows) {
 }
 
 function save() {
-  if (!state.agent) return;
+  if (!state.agent || applyingRemoteState) return;
   localStorage.setItem('stg_last_email', state.agent.email || '');
+  lastLocalWriteAt = Date.now();
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
     try {
@@ -177,11 +210,13 @@ function migrateState() {
 }
 
 async function login() {
+  resetLoginMsgStyle();
   const email = ($('#agentEmail')?.value || '').trim().toLowerCase();
   const name = ($('#agentName')?.value || '').trim();
   const pin = ($('#agentPin')?.value || '').trim();
   if (!email || !pin) { showLoginMsg('Complète ton email et ton PIN.'); return; }
   if (pin.length < 6) { showLoginMsg('Le PIN doit contenir au moins 6 caractères pour Firebase.'); return; }
+  loginInProgress = true;
   $('#loginBtn').disabled = true;
   $('#loginBtn').textContent = 'Connexion...';
   try {
@@ -213,6 +248,7 @@ async function login() {
     $('#loginMsg').classList.add('hidden');
     render();
     save();
+    subscribeCloudState(agent);
     setTimeout(openRecoveryPrompt, 250);
   } catch (e) {
     console.error(e);
@@ -224,12 +260,52 @@ async function login() {
     }[e.code] || ('Connexion impossible : ' + (e.message || e.code || 'erreur inconnue'));
     showLoginMsg(msg);
   } finally {
+    loginInProgress = false;
     $('#loginBtn').disabled = false;
     $('#loginBtn').textContent = 'Se connecter / créer mon espace';
   }
 }
 function showLoginMsg(t) { $('#loginMsg').textContent = t; $('#loginMsg').classList.remove('hidden'); }
-async function logout() { save(); try { await auth.signOut(); } catch(e){} $('#dashboard').classList.add('hidden'); $('#login').classList.remove('hidden'); $('#agentPin').value = ''; }
+function showLoginInfo(t) { const el = $('#loginMsg'); el.textContent = t; el.classList.remove('hidden'); el.classList.remove('error'); el.classList.add('hint'); }
+function resetLoginMsgStyle(){ const el=$('#loginMsg'); if(!el)return; el.classList.add('error'); el.classList.remove('hint'); }
+async function forgotPin(){
+  resetLoginMsgStyle();
+  const email = ($('#agentEmail')?.value || '').trim().toLowerCase();
+  if(!email){ showLoginMsg('Indique d’abord ton email, puis clique sur PIN oublié.'); $('#agentEmail')?.focus(); return; }
+  try{
+    await auth.sendPasswordResetEmail(email);
+    showLoginInfo('Email envoyé. Ouvre ta boîte mail pour créer un nouveau PIN, puis reviens te connecter.');
+  }catch(e){
+    console.error(e);
+    const msg = {
+      'auth/invalid-email':'Adresse email invalide.',
+      'auth/user-not-found':'Aucun espace n’est associé à cet email.',
+      'auth/too-many-requests':'Trop de demandes. Réessaie plus tard.'
+    }[e.code] || ('Impossible d’envoyer l’email : ' + (e.message || e.code || 'erreur inconnue'));
+    showLoginMsg(msg);
+  }
+}
+function updateRememberedLogin(){
+  const email = localStorage.getItem('stg_last_email') || '';
+  const box = $('#rememberedLogin');
+  if(!box) return;
+  if(email){
+    box.innerHTML = `Dernier espace utilisé : <b>${esc(email)}</b><br>Tu peux entrer seulement ton PIN si c’est toujours ton compte.<br><button class="btn ghost small" type="button" onclick="clearRememberedEmail()">Utiliser un autre email</button>`;
+    box.classList.remove('hidden');
+  }else{
+    box.classList.add('hidden');
+    box.innerHTML = '';
+  }
+}
+function clearRememberedEmail(){
+  localStorage.removeItem('stg_last_email');
+  $('#agentEmail').value = '';
+  $('#agentName').value = '';
+  $('#agentPin').value = '';
+  updateRememberedLogin();
+  $('#agentEmail').focus();
+}
+async function logout() { save(); if (cloudUnsubscribe) { cloudUnsubscribe(); cloudUnsubscribe = null; } try { await auth.signOut(); } catch(e){} $('#dashboard').classList.add('hidden'); $('#login').classList.remove('hidden'); $('#agentPin').value = ''; updateRememberedLogin(); }
 function switchAgent() { logout(); $('#agentEmail').value = ''; $('#agentName').value = ''; $('#agentPin').value = ''; }
 function rollover() {
   const today = dateKey();
@@ -316,7 +392,7 @@ function render() {
   document.documentElement.dataset.theme = state.theme || 'light';
   const dash = $('#dashboard'); if (dash) dash.dataset.mode = state.mode || 'full';
   $('#themeBtn').textContent = state.theme === 'dark' ? '☀️' : '🌙';
-  if ($('#modeBtn')) $('#modeBtn').textContent = isLite() ? 'Lite' : 'Full';
+  if ($('#modeBtn')) $('#modeBtn').textContent = isLite() ? 'Full Mode' : 'Lite Mode';
   $('#agentText').textContent = state.agent?.name || state.agent?.email || '';
   $('#todayText').textContent = new Date().toLocaleDateString('fr-FR');
   $('#clockText').textContent = hms();
@@ -896,8 +972,25 @@ async function validatePinChange(){
   }
 }
 
+async function restoreFirebaseSession(user){
+  if (!user) return;
+  const agent = { uid: user.uid, email: user.email, name: user.displayName || (user.email || '').split('@')[0] };
+  try {
+    await load(agent);
+    rollover();
+    $('#login').classList.add('hidden');
+    $('#dashboard').classList.remove('hidden');
+    render();
+    subscribeCloudState(agent);
+    setTimeout(openRecoveryPrompt, 250);
+  } catch(e) {
+    console.error('Restauration session impossible', e);
+    showLoginMsg('Session trouvée, mais chargement impossible. Reconnecte-toi.');
+  }
+}
+
 function bind() {
-  $('#loginBtn').onclick = login; ['#agentEmail','#agentName','#agentPin'].forEach(sel => { const el = $(sel); if (el) el.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); login(); } }); }); $('#switchBtn').onclick = switchAgent; $('#quitBtn').onclick = logout; $('#themeBtn').onclick = () => setTheme((state.theme || 'light') === 'dark' ? 'light' : 'dark'); if ($('#modeBtn')) $('#modeBtn').onclick = toggleMode; const rsb = $('#resetSpaceBtn'); if (rsb) rsb.onclick = resetWorkspace; if ($('#changePinBtn')) $('#changePinBtn').onclick = openChangePin; if ($('#closeChangePin')) $('#closeChangePin').onclick = closeChangePin; if ($('#validatePinChange')) $('#validatePinChange').onclick = validatePinChange; if ($('#changePinOverlay')) $('#changePinOverlay').onclick = e => { if (e.target.id === 'changePinOverlay') closeChangePin(); };
+  $('#loginBtn').onclick = login; const fp=$('#forgotPinBtn'); if(fp) fp.onclick = forgotPin; ['#agentEmail','#agentName','#agentPin'].forEach(sel => { const el = $(sel); if (el) el.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); login(); } }); }); $('#switchBtn').onclick = switchAgent; $('#quitBtn').onclick = logout; $('#themeBtn').onclick = () => setTheme((state.theme || 'light') === 'dark' ? 'light' : 'dark'); if ($('#modeBtn')) $('#modeBtn').onclick = toggleMode; const rsb = $('#resetSpaceBtn'); if (rsb) rsb.onclick = resetWorkspace; if ($('#changePinBtn')) $('#changePinBtn').onclick = openChangePin; if ($('#closeChangePin')) $('#closeChangePin').onclick = closeChangePin; if ($('#validatePinChange')) $('#validatePinChange').onclick = validatePinChange; if ($('#changePinOverlay')) $('#changePinOverlay').onclick = e => { if (e.target.id === 'changePinOverlay') closeChangePin(); };
   $('#openTableBtn').onclick = () => { $('#tableOverlay').classList.remove('hidden'); renderTable(); }; $('#closeTable').onclick = () => $('#tableOverlay').classList.add('hidden'); $('#tableOverlay').onclick = e => { if (e.target.id === 'tableOverlay') $('#tableOverlay').classList.add('hidden'); };
   $('#openHistoryBtn').onclick = openHistory; $('#closeHistory').onclick = closeHistory; $('#historyTasksTab').onclick = () => setHistoryMode('tasks'); $('#historyTablesTab').onclick = () => setHistoryMode('tables'); $('#historyOverlay').onclick = e => { if (e.target.id === 'historyOverlay') closeHistory(); };
   $('#emptySingle').onclick = () => { showMain(); $('#toolsCol').classList.remove('hidden'); $('#toolsBody').classList.remove('hidden'); $('#singleBox').classList.remove('hidden'); $('#bulkBox').classList.add('hidden'); $('#addNature').focus(); };
@@ -914,4 +1007,5 @@ function bind() {
 setInterval(() => { if ($('#clockText')) $('#clockText').textContent = hms(); if (state.active && state.agent) { updateTimerOnly(); updateLiteTimers(); } }, 1000);
 setInterval(checkReminders, 60000);
 bind();
-try { const lastEmail = localStorage.getItem('stg_last_email') || ''; if (lastEmail && $('#agentEmail')) $('#agentEmail').value = lastEmail; } catch (e) {}
+auth.onAuthStateChanged(user => { if (user && !state.agent && !loginInProgress) restoreFirebaseSession(user); });
+try { const lastEmail = localStorage.getItem('stg_last_email') || ''; if (lastEmail && $('#agentEmail')) $('#agentEmail').value = lastEmail; updateRememberedLogin(); } catch (e) {}
