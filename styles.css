@@ -179,3 +179,21 @@ body{min-height:100vh}.dashboard{max-width:1240px;margin:0 auto;padding:14px 16p
 [data-theme="dark"] .btn.danger{background:rgba(239,68,68,.18);color:#fecaca;border-color:rgba(248,113,113,.35)}
 .muted-inline{font-weight:700;color:var(--muted);font-size:12px}
 .login-card .pin-notice{font-size:13px;line-height:1.45}
+
+
+/* V48 - online sync UX fixes */
+.login-card .brand{display:none!important}
+.clean-controls{grid-template-columns:76px 64px 128px 38px 38px!important}
+.row-run-actions{display:grid!important;grid-template-columns:34px 34px;gap:4px;align-items:center;width:72px;min-width:72px}
+.row-run-actions .row-play{width:34px!important;min-width:34px!important}
+#dashboard[data-mode="lite"] .task-controls.clean-controls{grid-template-columns:minmax(190px,1.2fr) 54px 116px 34px 34px!important}
+@media(max-width:980px){.clean-controls{grid-template-columns:76px 64px 1fr 38px 38px!important}.task-controls.clean-controls{overflow-x:auto!important;padding-bottom:3px}}
+@media(max-width:620px){#dashboard[data-mode="lite"] .task-controls.clean-controls{grid-template-columns:1fr 52px 1fr 32px 32px!important}.row-run-actions{width:72px;min-width:72px}.clean-controls{grid-template-columns:72px 1fr 1fr 38px 38px!important}}
+
+
+/* V49 - PIN oublié + dernier email */
+.login-secondary{margin-top:8px}
+.remembered-login{margin:10px 0 12px;padding:10px 12px;border:1px solid var(--line);border-radius:14px;background:rgba(22,163,74,.08);color:var(--muted);font-size:12px;line-height:1.45;font-weight:800}
+.remembered-login b{color:var(--text)}
+.remembered-login button{margin-top:7px}
+[data-theme="dark"] .remembered-login{background:rgba(34,197,94,.12);border-color:#284a38}
